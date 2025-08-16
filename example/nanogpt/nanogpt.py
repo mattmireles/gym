@@ -1,10 +1,60 @@
 """
-Full definition of a GPT Language Model, all of it in this single file.
+NanoGPT Model Implementation - Complete GPT Architecture for Distributed Training
+
+This file contains a complete, production-ready GPT implementation optimized for
+distributed training research and experimentation. Based on the original GPT-2
+architecture with modern optimizations and distributed training compatibility.
+
+Role in System:
+- Core GPT model implementation used across all distributed training experiments
+- Provides configurable model sizes from small (4 layers) to xl (48 layers)
+- Implements modern training optimizations: Flash Attention, weight tying, proper initialization
+- Designed specifically for exogym distributed training framework integration
+
+Called by:
+- example/nanogpt.py distributed training CLI for model instantiation
+- example/playground.py for simple DiLoCo training experiments  
+- example/diloco_scaling_batchsize.py for batch size scaling studies
+- Any research script requiring GPT model implementation
+
+Calls:
+- torch.nn for neural network components and operations
+- torch.nn.functional for activation functions and attention mechanisms
+- dataclasses for clean configuration management
+- inspect for optimizer introspection and compatibility
+
+Architecture Highlights:
+- Causal self-attention with Flash Attention support for efficiency
+- Pre-layer normalization for training stability
+- GELU activation functions for better gradient flow
+- Configurable dropout for regularization control
+- Weight tying between embedding and output layers
+
+Model Configurations:
+- Small: 4 layers, 4 heads, 128 embedding (educational/debugging)
+- Base: 12 layers, 12 heads, 768 embedding (GPT-2 small equivalent)
+- Medium: 24 layers, 16 heads, 1024 embedding (GPT-2 medium equivalent)
+- Large: 36 layers, 20 heads, 1280 embedding (GPT-2 large equivalent)
+- XL: 48 layers, 25 heads, 1600 embedding (GPT-2 xl equivalent)
+
+Training Optimizations:
+- Proper weight initialization following GPT-2 specifications
+- Automatic mixed precision compatibility
+- Flash Attention for memory efficiency (PyTorch >= 2.0)
+- Configurable gradient clipping and weight decay
+- Model FLOPS utilization estimation for performance monitoring
+
+Distributed Training Features:
+- Device-agnostic tensor allocation (CPU, CUDA, MPS)
+- Compatible with exogym distributed training strategies
+- Memory-efficient forward pass with optional inference mode
+- Batch processing optimized for distributed training workflows
+
 References:
-1) the official GPT-2 TensorFlow implementation released by OpenAI:
-https://github.com/openai/gpt-2/blob/master/src/model.py
-2) huggingface/transformers PyTorch implementation:
-https://github.com/huggingface/transformers/blob/main/src/transformers/models/gpt2/modeling_gpt2.py
+1) Original GPT-2 TensorFlow implementation: https://github.com/openai/gpt-2/blob/master/src/model.py
+2) HuggingFace Transformers PyTorch implementation: https://github.com/huggingface/transformers/blob/main/src/transformers/models/gpt2/modeling_gpt2.py
+3) Attention Is All You Need: https://arxiv.org/abs/1706.03762
+4) Language Models are Unsupervised Multitask Learners: https://d4mucfpksywv.cloudfront.net/better-language-models/language_models_are_unsupervised_multitask_learners.pdf
 """
 
 import math
@@ -17,20 +67,91 @@ from torch.nn import functional as F
 
 
 class LayerNorm(nn.Module):
-    """LayerNorm but with an optional bias. PyTorch doesn't support simply bias=False"""
+    """
+    Layer normalization with optional bias parameter.
+    
+    Custom LayerNorm implementation that supports disabling bias parameter,
+    which is not directly supported in PyTorch's native LayerNorm. This
+    flexibility enables architectural experimentation and memory optimization.
+    
+    Architecture Benefits:
+        - Bias-free variant reduces parameter count and memory usage
+        - Maintains normalization benefits without additional learnable offset
+        - Enables architecture ablation studies for research
+        - Consistent with some modern transformer variants
+        
+    Implementation Details:
+        - Uses F.layer_norm for computational efficiency
+        - Maintains identical mathematical behavior to nn.LayerNorm when bias=True
+        - Supports gradient computation and training stability
+        - Compatible with all PyTorch optimizers and schedulers
+    """
 
     def __init__(self, ndim, bias):
+        """
+        Initialize LayerNorm with optional bias.
+        
+        Args:
+            ndim (int): Number of dimensions for normalization (embedding size)
+            bias (bool): Whether to include learnable bias parameter
+        """
         super().__init__()
         self.weight = nn.Parameter(torch.ones(ndim))
         self.bias = nn.Parameter(torch.zeros(ndim)) if bias else None
 
     def forward(self, input):
+        """
+        Apply layer normalization to input tensor.
+        
+        Args:
+            input (torch.Tensor): Input tensor of shape (..., ndim)
+            
+        Returns:
+            torch.Tensor: Normalized tensor with same shape as input
+        """
         return F.layer_norm(input, self.weight.shape, self.weight, self.bias, 1e-5)
 
 
 class CausalSelfAttention(nn.Module):
+    """
+    Causal self-attention mechanism with Flash Attention support.
+    
+    Implements multi-head causal self-attention for autoregressive language modeling
+    with optional Flash Attention optimization for memory efficiency and speed.
+    Prevents information leakage from future tokens through causal masking.
+    
+    Architecture Features:
+        - Multi-head attention with configurable head count
+        - Causal masking for autoregressive generation
+        - Flash Attention for PyTorch 2.0+ (automatic fallback for older versions)
+        - Efficient packed QKV computation for all heads
+        - Dropout for attention weights and residual connections
+        
+    Flash Attention Benefits:
+        - Memory efficiency: O(N) instead of O(N²) memory complexity
+        - Speed improvements: Optimized CUDA kernels for attention computation
+        - Automatic gradient computation and mixed precision support
+        - Maintains mathematical equivalence to standard attention
+        
+    Causal Masking Strategy:
+        - PyTorch 2.0+: Uses is_causal=True flag in scaled_dot_product_attention
+        - Legacy: Manual triangular mask implementation with -inf masking
+        - Ensures position i can only attend to positions j ≤ i
+        - Maintains autoregressive property for language modeling
+    """
 
     def __init__(self, config):
+        """
+        Initialize causal self-attention layer.
+        
+        Args:
+            config: Model configuration containing:
+                - n_embd: Embedding dimension
+                - n_head: Number of attention heads  
+                - block_size: Maximum sequence length
+                - dropout: Dropout probability
+                - bias: Whether to use bias in linear layers
+        """
         super().__init__()
         assert config.n_embd % config.n_head == 0
         # key, query, value projections for all heads, but in a batch
@@ -180,8 +301,55 @@ class GPTConfig:
 
 
 class GPT(nn.Module):
+    """
+    Complete GPT (Generative Pre-trained Transformer) implementation for distributed training.
+    
+    Production-ready transformer architecture optimized for language modeling with
+    distributed training compatibility. Implements the core GPT architecture with
+    modern optimizations including Flash Attention, weight tying, and proper
+    initialization strategies.
+    
+    Architecture Overview:
+        - Token and positional embeddings for input representation
+        - Stack of transformer blocks with self-attention and MLP layers
+        - Language modeling head with tied weights for parameter efficiency
+        - Configurable model sizes from small (4 layers) to xl (48 layers)
+        
+    Key Features:
+        - Weight tying between embedding and output layers for parameter efficiency
+        - Flash Attention support for memory and speed optimization
+        - Proper GPT-2 style initialization for training stability
+        - Cross-entropy loss integration for language modeling
+        - Device-agnostic tensor allocation for distributed training
+        
+    Distributed Training Optimizations:
+        - Compatible with exogym distributed training strategies
+        - Efficient gradient computation and communication
+        - Memory-optimized forward pass with optional inference mode
+        - Robust parameter synchronization across distributed nodes
+        
+    Model Size Configurations:
+        - Small: 4 layers, 4 heads, 128 embedding (~1M parameters)
+        - Base: 12 layers, 12 heads, 768 embedding (~117M parameters) 
+        - Medium: 24 layers, 16 heads, 1024 embedding (~345M parameters)
+        - Large: 36 layers, 20 heads, 1280 embedding (~762M parameters)
+        - XL: 48 layers, 25 heads, 1600 embedding (~1.5B parameters)
+    """
 
     def __init__(self, config):
+        """
+        Initialize GPT model with specified configuration.
+        
+        Args:
+            config (GPTConfig): Model configuration containing:
+                - vocab_size: Vocabulary size for embeddings
+                - block_size: Maximum sequence length
+                - n_layer: Number of transformer layers
+                - n_head: Number of attention heads per layer
+                - n_embd: Embedding dimension
+                - dropout: Dropout probability for regularization
+                - bias: Whether to use bias in linear layers
+        """
         super().__init__()
         assert config.vocab_size is not None
         assert config.block_size is not None

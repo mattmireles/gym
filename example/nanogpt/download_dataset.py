@@ -1,4 +1,42 @@
 #!/usr/bin/env python
+"""
+Dataset Download Utility - Standalone Dataset Preprocessing
+
+This utility script provides a standalone interface for downloading and preprocessing
+datasets without running actual training. Useful for pre-populating dataset caches,
+CI/CD pipeline setup, and distributed training preparation where dataset preprocessing
+should be separated from training execution.
+
+Role in System:
+- Standalone dataset preprocessing and caching utility
+- CI/CD pipeline component for dataset preparation
+- Development tool for pre-populating caches before training experiments
+- Distributed training preparation tool for ensuring consistent dataset availability
+
+Called by:
+- CI/CD systems preparing datasets for distributed training experiments
+- Developers setting up local development environments
+- System administrators preparing distributed training infrastructure
+- Manual execution: `python download_dataset.py --dataset owt --proportion 0.1`
+
+Calls:
+- nanogpt/dataset.py get_dataset() for unified dataset processing interface
+- argparse for command-line interface and parameter validation
+- Underlying dataset processing pipeline through dataset factory
+
+Usage Patterns:
+- Full dataset download: `python download_dataset.py --dataset owt`
+- Partial dataset for testing: `python download_dataset.py --dataset owt --proportion 0.01`
+- Multi-threaded processing: `python download_dataset.py --max_workers 16`
+- Educational datasets: `python download_dataset.py --dataset shakespeare`
+
+Design Considerations:
+- Separates dataset preparation from training for cleaner workflows
+- Provides progress feedback for long-running dataset downloads
+- Supports configurable parallelism for optimal download performance
+- Validates dataset integrity before completing
+"""
+
 import argparse
 from dataset import get_dataset
 

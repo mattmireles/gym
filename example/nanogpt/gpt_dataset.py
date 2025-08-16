@@ -1,12 +1,93 @@
+"""
+GPT Dataset Implementations - PyTorch Dataset Classes for Text Data
+
+This file implements specialized PyTorch Dataset classes optimized for GPT training
+with different memory and performance characteristics. Provides both contiguous
+(sliding window) and non-contiguous (pre-segmented) dataset access patterns,
+with intelligent lazy loading for large-scale datasets.
+
+Role in System:
+- Core PyTorch Dataset implementations for all GPT training workflows
+- Memory-efficient lazy loading for large datasets that don't fit in memory
+- Device-aware tensor management for optimal GPU utilization
+- Flexible dataset access patterns supporting different training requirements
+
+Called by:
+- nanogpt/dataset.py get_dataset() factory function for dataset instantiation
+- exogym.trainer.LocalTrainer during distributed training data loading
+- PyTorch DataLoader for batch creation during training
+- Research scripts requiring custom dataset access patterns
+
+Calls:
+- torch for tensor operations and device management
+- numpy for efficient array operations and file I/O
+- os for file system operations and cache management
+- PyTorch Dataset base class for standard dataset interface
+
+Dataset Implementations:
+
+1. ContiguousGPTTrainDataset:
+   - Sliding window access over continuous token streams
+   - Preserves long-range dependencies and context
+   - Suitable for smaller datasets that fit in memory
+   - Memory efficient for sequential data access
+
+2. NonContiguousGPTTrainDataset:
+   - Pre-segmented sequences with fixed block sizes
+   - No continuity between examples (independent sequences)
+   - Optimized for distributed training with consistent batch shapes
+   - Direct tensor loading without sliding window overhead
+
+3. LazyNonContiguousGPTTrainDataset:
+   - Chunk-based lazy loading for large datasets like OpenWebText
+   - LRU cache management for optimal memory utilization
+   - Automatic chunk eviction based on configurable memory limits
+   - Transparent chunk loading with global index mapping
+
+Memory Management Strategy:
+- Configurable chunk caching with max_chunks_in_memory parameter
+- LRU eviction policy for optimal cache utilization
+- Device-aware tensor allocation (CPU, CUDA, MPS)
+- Automatic memory monitoring and cache statistics
+"""
+
 import torch
 import numpy as np
 import os
 
 
 class NonContiguousGPTTrainDataset(torch.utils.data.Dataset):
-    """Dataset for pre-segmented training data (2D tensor).
-    Each row is an independent sequence with no continuity between examples.
-    Suitable for datasets already divided into fixed-length chunks.
+    """
+    Dataset for pre-segmented training data (2D tensor).
+    
+    Handles datasets where sequences are already divided into fixed-length chunks
+    with no continuity between examples. Each row represents an independent
+    training sequence, making it suitable for datasets with natural boundaries
+    or when memory constraints require pre-segmented data.
+    
+    Data Format:
+        - Input: 2D numpy array of shape (num_examples, block_size)
+        - Each row is a complete, independent sequence
+        - No sliding window or overlap between examples
+        - Consistent sequence lengths across all examples
+        
+    Use Cases:
+        - Pre-processed datasets with natural sequence boundaries
+        - Memory-constrained scenarios requiring fixed batch shapes
+        - Distributed training with consistent data shapes across nodes
+        - Baseline comparisons with non-overlapping sequence training
+        
+    Memory Characteristics:
+        - Loads entire dataset into GPU memory at initialization
+        - Fixed memory footprint based on dataset size
+        - No dynamic loading or caching mechanisms
+        - Suitable for datasets that fit comfortably in memory
+        
+    Training Implications:
+        - No context preservation between sequences
+        - Each example is independent for gradient computation
+        - Simplified data loading with predictable memory usage
+        - Consistent batch shapes for distributed training stability
     """
 
     def __init__(self, data, device):
@@ -26,9 +107,49 @@ class NonContiguousGPTTrainDataset(torch.utils.data.Dataset):
 
 
 class LazyNonContiguousGPTTrainDataset(torch.utils.data.Dataset):
-    """Dataset for pre-segmented training data with lazy loading.
-    Chunks are cached locally but only loaded into memory when needed.
-    Each row is an independent sequence with no continuity between examples.
+    """
+    Dataset for pre-segmented training data with intelligent lazy loading and LRU caching.
+    
+    Optimized for large-scale datasets that don't fit in memory, this implementation
+    provides chunk-based lazy loading with configurable LRU cache management.
+    Essential for training on datasets like OpenWebText where the full dataset
+    exceeds available GPU memory.
+    
+    Chunk Management:
+        - Data divided into chunks stored as individual numpy files
+        - Global index mapping from dataset position to (chunk_id, local_index)
+        - Automatic chunk loading and eviction based on access patterns
+        - Configurable memory limits to prevent out-of-memory errors
+        
+    LRU Cache Strategy:
+        - Least Recently Used eviction policy for optimal memory utilization
+        - Configurable max_chunks_in_memory parameter for memory control
+        - Access order tracking for intelligent cache replacement
+        - Automatic cache statistics and memory monitoring
+        
+    Memory State Management:
+        - _loaded_chunks: Dict mapping chunk_id → loaded tensor data
+        - _chunk_access_order: List tracking access order for LRU eviction
+        - Chunk size and offset arrays for O(1) index mapping
+        - Device-aware tensor allocation for optimal GPU utilization
+        
+    Index Mapping System:
+        - Global index space spanning all chunks seamlessly
+        - Efficient conversion from global_idx → (chunk_id, local_idx)
+        - Pre-computed chunk offsets for O(1) lookup performance
+        - Handles variable chunk sizes and dataset boundaries
+        
+    Distributed Training Support:
+        - Chunk-based data sharding across distributed nodes
+        - Consistent global indexing for reproducible training
+        - Memory-efficient per-node data loading
+        - Automatic chunk discovery and validation
+        
+    Performance Optimizations:
+        - Lazy loading reduces memory pressure and startup time
+        - LRU caching maximizes cache hit rates during training
+        - Device-aware tensor management for optimal GPU utilization
+        - Minimal memory overhead for chunk metadata storage
     """
 
     def __init__(self, chunk_ids, cache_location, device, max_chunks_in_memory=None):
@@ -132,9 +253,49 @@ class LazyNonContiguousGPTTrainDataset(torch.utils.data.Dataset):
 
 
 class ContiguousGPTTrainDataset(torch.utils.data.Dataset):
-    """Dataset for continuous token streams (1D tensor).
-    Creates examples by sliding a window over the data.
-    Preserves context and long-range dependencies in text.
+    """
+    Dataset for continuous token streams with sliding window access pattern.
+    
+    Implements sliding window approach over continuous text data, preserving
+    long-range dependencies and document structure. Creates overlapping training
+    examples that maintain context across sequence boundaries, essential for
+    high-quality language model training.
+    
+    Data Format:
+        - Input: 1D numpy array representing continuous token stream
+        - Sliding window creates overlapping sequences of fixed length
+        - Each example preserves context from previous sequences
+        - Natural document and paragraph boundaries maintained
+        
+    Context Preservation:
+        - Overlapping windows maintain cross-sequence dependencies
+        - Document structure and long-range patterns preserved
+        - Enables learning of inter-sentence and inter-paragraph relationships
+        - Critical for coherent text generation and understanding
+        
+    Memory Characteristics:
+        - Loads entire dataset into GPU memory at initialization
+        - Memory usage proportional to dataset size
+        - Fixed memory footprint with no dynamic loading
+        - Optimal for datasets that fit comfortably in available memory
+        
+    Training Benefits:
+        - Maximum utilization of available training data
+        - Preserved context improves model quality
+        - Consistent with language modeling best practices
+        - Better learning of long-range dependencies
+        
+    Use Cases:
+        - Small to medium datasets (Shakespeare, WikiText)
+        - Educational experiments requiring context preservation
+        - Baseline comparisons with full context utilization
+        - Research scenarios prioritizing model quality over memory efficiency
+        
+    Implementation Details:
+        - Sliding window with stride 1 for maximum data utilization
+        - Block size determines sequence length for training
+        - Automatic input/target splitting (input[:-1], target[1:])
+        - Device-aware tensor allocation for GPU acceleration
     """
 
     def __init__(self, data, block_size, device):

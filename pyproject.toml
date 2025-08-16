@@ -1,3 +1,58 @@
+# ExoGym: Distributed Training Simulation Framework
+#
+# This project configuration file defines the packaging, dependencies, and metadata
+# for ExoGym, an open-source framework for simulated distributed training methods.
+# ExoGym enables researchers and practitioners to experiment with various distributed
+# training strategies including federated learning, communication compression,
+# and novel optimization algorithms.
+#
+# ## Project Overview
+#
+# ExoGym provides:
+# - Strategy Pattern for pluggable distributed training algorithms
+# - Hardware-agnostic communication layer (CUDA, MPS, CPU)
+# - Advanced strategies: DiLoCo, SPARTA, FedAvg, DeMo
+# - Comprehensive logging and experiment tracking
+# - Production-ready multiprocessing framework
+#
+# ## Dependency Strategy
+#
+# ### Core Dependencies (Minimal Installation)
+# - torch>=2.0.0: PyTorch framework for deep learning and distributed training
+# - numpy>=1.20.0: Numerical computing foundation
+# - tqdm>=4.60.0: Progress bars for training visualization
+# - datasets>=2.0.0: HuggingFace datasets for data loading
+#
+# ### Optional Dependencies (Feature-Specific)
+# - wandb: Experiment tracking and visualization
+# - transformers: Transformer model implementations for NLP tasks
+# - einops: Tensor operations for DeMo algorithm implementation
+# - torchvision: Computer vision models and datasets for examples
+# - boto3: AWS integration for cloud-based distributed training
+#
+# ### Development Dependencies
+# - pytest: Testing framework for unit and integration tests
+# - black: Code formatting for consistent style
+# - flake8: Linting for code quality
+# - mypy: Static type checking for type safety
+#
+# ## Installation Patterns
+#
+# Basic installation:           pip install exogym
+# With experiment tracking:     pip install exogym[wandb]
+# With transformer models:      pip install exogym[gpt]
+# With DeMo algorithm:          pip install exogym[demo]
+# With examples:                pip install exogym[examples]
+# Full development setup:       pip install exogym[dev]
+# All features:                 pip install exogym[all]
+#
+# ## Version Strategy
+#
+# Current version: 0.1.0a2 (Alpha release)
+# - Alpha status indicates active development with API stability goals
+# - Semantic versioning for compatibility tracking
+# - Pre-release versions for testing and feedback
+
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"

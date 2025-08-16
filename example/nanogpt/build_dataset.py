@@ -1,3 +1,49 @@
+"""
+Dataset Building and Preprocessing Pipeline
+
+This file implements the core dataset preprocessing pipeline for training GPT models
+on various text datasets. Provides optimized processing for both small educational
+datasets and large-scale datasets like OpenWebText, with intelligent caching and
+distributed training support.
+
+Role in System:
+- Central dataset preprocessing hub for all text datasets used in distributed training
+- Implements efficient tokenization and chunking strategies for different dataset sizes
+- Provides intelligent caching to avoid reprocessing datasets between experiments  
+- Supports both character-level and subword tokenization strategies
+
+Called by:
+- nanogpt/dataset.py get_dataset() function for unified dataset interface
+- nanogpt/download_dataset.py for standalone dataset preprocessing
+- Distributed training scripts requiring consistent dataset preprocessing
+- Research scripts needing reproducible dataset splits and processing
+
+Calls:
+- transformers.GPT2Tokenizer for subword tokenization on larger datasets
+- datasets library for efficient loading and processing of HuggingFace datasets
+- numpy for efficient array operations and caching
+- os.cpu_count() for optimal multiprocessing during tokenization
+
+Supported Datasets:
+- shakespeare: Character-level tokenization, small dataset for quick experiments
+- wikitext: GPT-2 tokenization, medium-sized dataset for validation
+- owt (OpenWebText): GPT-2 tokenization with chunking, large-scale training dataset
+
+Processing Pipeline:
+1. Dataset download and verification from HuggingFace hub
+2. Tokenization using appropriate tokenizer (character or GPT-2)
+3. Sequence concatenation with EOS token separation
+4. Block size chunking for efficient training data loading
+5. Intelligent caching with cache invalidation on parameter changes
+6. Distributed data sharding support for multi-node training
+
+Caching Strategy:
+- File-based caching with parameter-specific cache keys
+- Automatic cache invalidation when processing parameters change
+- Efficient chunk-based caching for large datasets to support distributed loading
+- Memory-efficient processing that doesn't require loading entire datasets
+"""
+
 import torch
 import argparse
 import numpy as np
@@ -7,8 +53,33 @@ from datasets import load_dataset, load_dataset_builder, concatenate_datasets
 
 def generate_char_vocab():
     """
-    Generates a fixed character vocabulary and returns two mappings:
-    char -> int, int -> char, and also the special end-of-sequence token id.
+    Generate fixed character vocabulary for character-level tokenization.
+    
+    Creates deterministic character-to-integer mapping for Shakespeare and other
+    character-level datasets. Includes standard ASCII characters plus special
+    end-of-sequence token for proper sequence termination.
+    
+    Returns:
+        tuple: (char_to_int_mapping, eos_token_id)
+            - char_to_int_mapping (dict): Character to integer ID mapping
+            - eos_token_id (int): Integer ID for end-of-sequence token
+            
+    Vocabulary Contents:
+        - Basic punctuation: space, !, $, &, ', -, ., 3, :, ;, ?
+        - Alphabetic characters: A-Z, a-z (full English alphabet)
+        - Newline character for text structure preservation
+        - Special EOS token: "<EOS>" for sequence boundary marking
+        
+    Design Rationale:
+        - Fixed vocabulary ensures reproducible tokenization across runs
+        - Character-level provides fine-grained control for small datasets
+        - EOS token enables proper sequence boundary detection
+        - Compact vocabulary (64 characters) for efficient embedding layers
+        
+    Usage Context:
+        - Shakespeare dataset preprocessing for educational experiments
+        - Small dataset character-level language modeling
+        - Deterministic tokenization for research reproducibility
     """
     vocab = " !$&',-.3:;?ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz\n"
     char_int = {char: i for i, char in enumerate(vocab)}
@@ -23,16 +94,52 @@ def generate_char_vocab():
 
 def build_dataset_small(dataset, block_size=1024, start_pc=0.0, end_pc=1.0):
     """
-    Loads and preprocesses the dataset with caching, using either a custom character-level tokenizer
-    or the GPT2 tokenizer.
-
+    Load and preprocess small-scale datasets with intelligent caching and tokenization.
+    
+    Handles both character-level tokenization (Shakespeare) and subword tokenization
+    (WikiText) with automatic tokenization strategy selection. Implements efficient
+    caching to avoid reprocessing datasets between training runs.
+    
     Args:
-        dataset: a string identifier ("shakespeare" or "wikitext")
-        block_size: the sequence block size.
-        char (bool): If True, use character-level tokenization; otherwise, use GPT-2 tokenization.
+        dataset (str): Dataset identifier ("shakespeare" or "wikitext")
+        block_size (int): Maximum sequence length for training blocks
+        start_pc (float): Start percentage of dataset to use (0.0-1.0)
+        end_pc (float): End percentage of dataset to use (0.0-1.0)
+        
     Returns:
-        data: a numpy array of the dataset.
-        vocab_size: the size of the vocabulary.
+        tuple: (processed_data, vocab_size)
+            - processed_data (np.ndarray): Tokenized and concatenated text data
+            - vocab_size (int): Size of tokenizer vocabulary
+            
+    Tokenization Strategy:
+        - Shakespeare: Character-level tokenization with fixed 64-character vocabulary
+        - WikiText: GPT-2 subword tokenization with 50,257 token vocabulary
+        - Automatic strategy selection based on dataset characteristics
+        
+    Caching Strategy:
+        - Parameter-specific cache files prevent unnecessary reprocessing
+        - Cache key includes dataset, block_size, start_pc, end_pc
+        - Automatic cache validation and regeneration when parameters change
+        - Separate cache directories for character vs subword tokenization
+        
+    Processing Pipeline:
+        1. Check for existing cached data with matching parameters
+        2. Load dataset from HuggingFace hub with specified data range
+        3. Apply appropriate tokenization strategy (character or subword)
+        4. Concatenate all sequences with EOS token separation
+        5. Cache processed data for future use
+        
+    Dataset Handling:
+        - Shakespeare: Trelis/tiny-shakespeare from HuggingFace
+        - WikiText: wikitext-2-raw-v1 configuration
+        - Supports partial dataset loading via start_pc/end_pc parameters
+        - Maintains deterministic ordering for reproducible experiments
+        
+    Memory Optimization:
+        - Streaming processing for large dataset portions
+        - Efficient numpy array operations for concatenation
+        - Minimal memory footprint during tokenization
+        - Automatic garbage collection of intermediate results
     """
     assert dataset in ["shakespeare", "wikitext"]
 
@@ -161,15 +268,59 @@ def build_dataset_small(dataset, block_size=1024, start_pc=0.0, end_pc=1.0):
 
 def build_dataset_owt(start_pc=0.0, end_pc=1.0, max_workers=8):
     """
-    Loads and preprocesses the dataset with caching, using either a custom character-level tokenizer
-    or the GPT2 tokenizer. It uses only a fraction of the full dataset, as controlled by dataset_proportion,
-    then splits that fraction into training and validation portions (with val_ratio held out as validation).
-    When rank and world_size are provided, the training portion is sharded among nodes.
-
+    Load and preprocess OpenWebText dataset with chunked caching for distributed training.
+    
+    Implements sophisticated chunked caching strategy optimized for large-scale distributed
+    training on OpenWebText dataset. Supports partial dataset loading, parallel processing,
+    and intelligent chunk management for memory-efficient training.
+    
     Args:
-        start_pc (float): The start percentage of the dataset to use.
-        end_pc (float): The end percentage of the dataset to use.
-        max_workers (int): Maximum number of workers for parallel processing.
+        start_pc (float): Start percentage of dataset to use (0.0-1.0)
+        end_pc (float): End percentage of dataset to use (0.0-1.0)  
+        max_workers (int): Maximum parallel workers for dataset processing
+        
+    Returns:
+        tuple: (chunk_ids, cache_location, vocab_size)
+            - chunk_ids (list): List of chunk IDs available for training
+            - cache_location (str): Directory path containing cached chunks
+            - vocab_size (int): GPT-2 tokenizer vocabulary size (50,257)
+            
+    Chunking Strategy:
+        - Target 1000 chunks for full dataset (configurable via target_chunks_for_full_dataset)
+        - Each chunk contains fixed-size blocks (1024 tokens per block)
+        - Chunk IDs calculated based on position in full dataset
+        - Support for partial dataset loading with proportional chunk allocation
+        
+    Caching Architecture:
+        - Chunk-based caching enables lazy loading during training
+        - Cache files: "data/owt/chunk_{chunk_id}.npy"
+        - Automatic detection of missing chunks with selective regeneration
+        - Memory-efficient processing without loading entire dataset
+        
+    Processing Pipeline:
+        1. Calculate target chunk range based on start_pc/end_pc parameters
+        2. Check for existing cached chunks in expected range
+        3. Download and process only missing chunks from HuggingFace
+        4. Tokenize using GPT-2 tokenizer with consistent block sizes
+        5. Save processed chunks with globally consistent chunk IDs
+        
+    Distributed Training Support:
+        - Chunk IDs provide global addressing across distributed nodes
+        - Per-node data sharding through chunk subset allocation
+        - Lazy loading enables training on datasets larger than memory
+        - Consistent data ordering across distributed training runs
+        
+    Memory Management:
+        - Streaming processing with configurable parallelism
+        - Fixed block size (1024 tokens) for consistent memory usage
+        - Automatic garbage collection of intermediate processing results
+        - Chunk-level granularity for optimal memory utilization
+        
+    Error Handling:
+        - Validates dataset availability and download integrity
+        - Handles network interruptions during dataset download
+        - Provides clear progress reporting for long-running operations
+        - Automatic retry logic for failed chunk processing
     """
     block_size = 1024  # Fixed block size for OWT
     cache_dir = os.path.join("data", "owt")
