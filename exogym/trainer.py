@@ -66,8 +66,8 @@ import torch
 import torch.distributed as dist
 import torch.multiprocessing as mp
 
-from exogym.train_node import TrainNode
-from exogym.strategy import Strategy
+from .train_node import TrainNode
+from .strategy import Strategy
 
 import os
 from abc import abstractmethod

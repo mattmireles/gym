@@ -86,7 +86,7 @@ from typing import Dict, Any
 
 from .communicate import all_reduce
 
-from exogym.utils import LogModule
+from ..utils import LogModule
 
 from abc import ABC, abstractmethod
 
@@ -594,6 +594,7 @@ class SimpleReduceStrategy(Strategy):
 
         # Optional gradient clipping for training stability
         self.max_norm = max_norm
+        self._ddp_wrapped = False
 
     def _init_node(self, model, rank, num_nodes):
         """
@@ -603,6 +604,13 @@ class SimpleReduceStrategy(Strategy):
         rate scheduling according to configuration.
         """
         super()._init_node(model, rank, num_nodes)
+
+        # Detect if model is already wrapped in DistributedDataParallel (via Accelerate/Trainer)
+        try:
+            from torch.nn.parallel import DistributedDataParallel as _DDP
+            self._ddp_wrapped = isinstance(model, _DDP)
+        except Exception:
+            self._ddp_wrapped = False
 
         # Create optimizer with model parameters on correct device
         self.optim = self.optim_spec.build(model)
@@ -620,8 +628,9 @@ class SimpleReduceStrategy(Strategy):
         3. Execute optimizer step with averaged gradients
         4. Handle learning rate scheduling
         """
-        # Average gradients across all nodes (including single-node case for consistency)
-        if self.num_nodes > 1 or True:
+        # Average gradients across all nodes only when we manage comms ourselves
+        # Skip when model is DDP-wrapped to avoid double-reduction
+        if self.num_nodes > 1 and not self._ddp_wrapped:
             for param in self.model.parameters():
                 if param.grad is not None:
                     # Sum gradients across all nodes

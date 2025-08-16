@@ -97,20 +97,41 @@ PyTorch training workflows.
 from .strategy import Strategy
 from .diloco import DiLoCoStrategy
 from .optim import OptimSpec
-from .sparta import SPARTAStrategy
-from .federated_averaging import FedAvgStrategy
-from .communicate_optimize_strategy import CommunicateOptimizeStrategy
 
-# from .sparta_diloco import SPARTADiLoCoStrategy
-from .demo import DeMoStrategy
+# Optional strategies (guarded to avoid importing heavy research deps in minimal env)
+try:
+    from .sparta import SPARTAStrategy  # type: ignore
+except Exception:
+    SPARTAStrategy = None  # type: ignore
 
-__all__ = [
-    "Strategy",
-    "DiLoCoStrategy",
-    "OptimSpec",
-    "SPARTAStrategy",
-    "FedAvgStrategy",
-    "CommunicateOptimizeStrategy",
-    "SPARTADiLoCoStrategy",
-    "DeMoStrategy",
-]
+try:
+    from .federated_averaging import FedAvgStrategy  # type: ignore
+except Exception:
+    FedAvgStrategy = None  # type: ignore
+
+try:
+    from .communicate_optimize_strategy import CommunicateOptimizeStrategy  # type: ignore
+except Exception:
+    CommunicateOptimizeStrategy = None  # type: ignore
+
+try:
+    # from .sparta_diloco import SPARTADiLoCoStrategy
+    SPARTADiLoCoStrategy = None  # type: ignore
+except Exception:
+    SPARTADiLoCoStrategy = None  # type: ignore
+
+try:
+    from .demo import DeMoStrategy  # type: ignore
+except Exception:
+    DeMoStrategy = None  # type: ignore
+
+__all__ = [name for name, val in {
+    "Strategy": Strategy,
+    "DiLoCoStrategy": DiLoCoStrategy,
+    "OptimSpec": OptimSpec,
+    "SPARTAStrategy": SPARTAStrategy,
+    "FedAvgStrategy": FedAvgStrategy,
+    "CommunicateOptimizeStrategy": CommunicateOptimizeStrategy,
+    "SPARTADiLoCoStrategy": SPARTADiLoCoStrategy,
+    "DeMoStrategy": DeMoStrategy,
+}.items() if val is not None]

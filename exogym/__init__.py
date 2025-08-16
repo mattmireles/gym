@@ -182,8 +182,8 @@ Final model with averaged parameters returned to user
 ## Usage Pattern
 
 ```python
-from exogym import LocalTrainer
-from exogym.strategy import DiLoCoStrategy
+from .trainer import LocalTrainer
+from .strategy import DiLoCoStrategy
 
 trainer = LocalTrainer(model, train_dataset, val_dataset)
 strategy = DiLoCoStrategy(H=100)  # Communicate every 100 steps
