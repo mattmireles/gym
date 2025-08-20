@@ -484,7 +484,10 @@ class TrainNode(LogModule):
                 self.val_data_iter = iter(self.val_dataloader)
                 batch = next(self.val_data_iter)
 
-        if isinstance(batch, tuple) or isinstance(batch, list):
+        # Support dict-style batches (model wrapper will handle device movement)
+        if isinstance(batch, dict):
+            pass
+        elif isinstance(batch, (tuple, list)):
             batch = tuple(x.to(self.device) for x in batch)
         else:
             batch = batch.to(self.device)

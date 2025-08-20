@@ -1,12 +1,12 @@
-# ExoGym: Advanced Distributed Training Framework
+# ExoGym: Advanced Distributed Training Simulation Framework
 
 [![PyPI version](https://badge.fury.io/py/exogym.svg)](https://badge.fury.io/py/exogym)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/release/python-380/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-> *The ultimate framework for researching, prototyping, and validating distributed training algorithms - now with production multi-machine training*
+> *The ultimate framework for researching, prototyping, and validating distributed training algorithms*
 
-ExoGym is a comprehensive, production-ready framework for distributed training that enables researchers and practitioners to experiment with cutting-edge distributed algorithms both in simulation and across actual multi-machine clusters. Originally designed for simulated distributed training on single machines, ExoGym now supports **real multi-Mac distributed training** for production Whisper fine-tuning with seamless Apple Silicon integration.
+ExoGym is a comprehensive, production-ready framework for simulated distributed training that enables researchers and practitioners to experiment with cutting-edge distributed algorithms without requiring expensive multi-GPU clusters. Instead of training with multiple physical nodes, ExoGym simulates distributed training by orchestrating multiple training processes on a single machine, providing identical algorithmic behavior to true distributed training.
 
 ## 🚀 Why ExoGym?
 
@@ -19,9 +19,8 @@ ExoGym is a comprehensive, production-ready framework for distributed training t
 ### 🏭 **Production Ready**
 - **Battle-Tested Algorithms**: Production implementations of state-of-the-art methods
 - **Hardware Agnostic**: Seamless operation across CPU, CUDA, and Apple Silicon (MPS)
-- **Multi-Mac Training**: Real distributed training across multiple Apple Silicon machines
 - **Comprehensive Logging**: Full integration with WandB, CSV, and custom logging systems
-- **Memory Efficient**: Optimized for both single-machine simulation and multi-machine training
+- **Memory Efficient**: Optimized for single-machine simulation without memory explosion
 
 ### 🎯 **Algorithmic Excellence**
 - **Modular Architecture**: Mix and match communication strategies for novel algorithms
@@ -110,44 +109,6 @@ pip install -e ".[dev]"
 | **CPU** | ✅ Full Support | Gloo backend for distributed communication |
 | **CUDA** | ✅ Full Support | NCCL backend for optimal GPU communication |
 | **Apple Silicon (MPS)** | ✅ Full Support | Automatic CPU fallback for unsupported operations |
-
-### 🍎 **Multi-Mac Distributed Training (NEW!)**
-
-ExoGym now supports **real multi-machine distributed training** across multiple Macs, extending beyond simulation to production distributed training:
-
-#### **Production Multi-Mac Features**
-- **🚀 SSH-Based Coordination**: Simple, reliable process spawning across machines via SSH
-- **🍎 Apple Silicon Optimized**: Native MPS support with ExoLabs guide integration  
-- **📡 Low-Communication Training**: DiLoCo strategy reduces network traffic by 100x
-- **🔧 Zero Configuration**: Automatic environment setup and validation
-- **📊 Progressive Disclosure UX**: Steve Jobs-inspired setup experience
-
-#### **Getting Started with Multi-Mac Training**
-```bash
-# 1. Setup your distributed_hosts.json
-echo '{
-  "master": "192.168.1.100",
-  "workers": ["192.168.1.101", "192.168.1.102"],
-  "ssh_user": "your_username"
-}' > distributed_hosts.json
-
-# 2. Test your setup
-python test_distributed.py --validate-only
-
-# 3. Start multi-Mac training
-python wizard.py  # Interactive setup
-# OR
-python cli_typer.py distributed-train --strategy diloco --model openai/whisper-medium
-```
-
-#### **Performance on Apple Silicon Clusters**
-| Setup | Expected Speedup | Network Usage | Memory per Mac |
-|-------|------------------|---------------|----------------|
-| 2 Macs | 1.6-1.8x faster | 100x less traffic | Same as single Mac |
-| 3 Macs | 2.2-2.6x faster | 100x less traffic | Same as single Mac |
-| 4 Macs | 2.8-3.2x faster | 100x less traffic | Same as single Mac |
-
-*See [DISTRIBUTED_TRAINING.md](../DISTRIBUTED_TRAINING.md) for complete setup guide*
 
 ---
 
@@ -239,42 +200,6 @@ strategy = DeMoStrategy(
 trainer.fit(strategy=strategy, num_nodes=4)
 ```
 
-### 🍎 **Multi-Mac DiLoCo Training**
-
-```python
-from distributed.network_trainer import NetworkTrainer
-from distributed.launcher import DistributedLauncher
-
-# Multi-Mac training with ExoGym strategies
-model = WhisperModelWrapper(whisper_model, processor, device='mps')
-train_dataset, val_dataset = load_whisper_data()
-
-# Setup distributed training across multiple Macs
-trainer = NetworkTrainer(
-    hosts_config="distributed_hosts.json",
-    model=model,
-    train_dataset=train_dataset,
-    val_dataset=val_dataset
-)
-
-# Train with DiLoCo across 3 Macs
-strategy = DiLoCoStrategy(
-    inner_optim='adamw',
-    outer_optim='sgd', 
-    H=100,  # 100x less network traffic
-    lr=3e-4
-)
-
-# Launch via CLI or programmatically
-launcher = DistributedLauncher("distributed_hosts.json")
-launcher.launch({
-    "strategy": "diloco",
-    "model": "openai/whisper-medium",
-    "num-epochs": 10,
-    "batch-size": 32
-})
-```
-
 ---
 
 ## 🏗️ Architecture Overview
@@ -282,33 +207,22 @@ launcher.launch({
 ExoGym implements a clean, modular architecture that separates concerns for maximum flexibility:
 
 ```
-                    SINGLE MACHINE                    │      MULTI-MAC CLUSTER
-                                                     │
-┌─────────────────┐    ┌──────────────────┐         │    ┌─────────────────┐
-│   LocalTrainer  │───▶│    TrainNode     │         │    │ DistributedLauncher│
-│                 │    │                  │         │    │                 │
-│ • Simulation    │    │ • Training Loop  │         │    │ • SSH Coordination│
-│ • Multiprocess  │    │ • Data Loading   │         │    │ • Process Spawning│
-│ • Model Sync    │    │ • Loss Compute   │         │    │ • Apple Silicon  │
-└─────────────────┘    └──────────────────┘         │    └─────────────────┘
-         │                        │                 │             │
-         ▼                        ▼                 │             ▼
-┌─────────────────┐    ┌──────────────────┐         │    ┌─────────────────┐
-│    Strategy     │    │     Dataset      │         │    │ NetworkTrainer  │
-│                 │    │                  │         │    │                 │
-│ • DiLoCo        │    │ • Auto Sharding  │         │    │ • Real Multi-Mac│
-│ • SPARTA        │    │ • Memory Opt     │         │    │ • MPS Validation│
-│ • FedAvg        │    │ • Lazy Loading   │         │    │ • ExoGym Bridge │
-└─────────────────┘    └──────────────────┘         │    └─────────────────┘
-         │                        │                 │             │
-         ▼                        ▼                 │             ▼
-┌─────────────────┐    ┌──────────────────┐         │    ┌─────────────────┐
-│     Logger      │    │ Communication    │         │    │WhisperWrapper   │
-│                 │    │                  │         │    │                 │
-│ • WandB/CSV     │    │ • Hardware       │         │    │ • ExoGym Compat │
-│ • Metrics       │    │   Agnostic       │         │    │ • Audio Pipeline│
-│ • Experiments   │    │ • MPS Support    │         │    │ • Device Mgmt   │
-└─────────────────┘    └──────────────────┘         │    └─────────────────┘
+┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
+│     Trainer     │───▶│    TrainNode     │───▶│    Strategy     │
+│                 │    │                  │    │                 │
+│ • Orchestration │    │ • Training Loop  │    │ • Communication │
+│ • Multiprocess  │    │ • Data Loading   │    │ • Optimization  │
+│ • Model Sync    │    │ • Loss Compute   │    │ • Algorithms    │
+└─────────────────┘    └──────────────────┘    └─────────────────┘
+         │                        │                        │
+         ▼                        ▼                        ▼
+┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
+│     Logger      │    │     Dataset      │    │ Communication   │
+│                 │    │                  │    │                 │
+│ • WandB/CSV     │    │ • Auto Sharding  │    │ • Hardware      │
+│ • Metrics       │    │ • Memory Opt     │    │   Agnostic      │
+│ • Experiments   │    │ • Lazy Loading   │    │ • MPS Support   │
+└─────────────────┘    └──────────────────┘    └─────────────────┘
 ```
 
 ### 🎪 **Core Components**
@@ -330,24 +244,6 @@ ExoGym implements a clean, modular architecture that separates concerns for maxi
 - **Optimization Logic**: Integrates local optimizers with distributed coordination
 - **Hardware Abstraction**: Transparent operation across different device types
 - **Configuration Management**: Flexible hyperparameter and algorithm configuration
-
-#### **NetworkTrainer: Multi-Mac Bridge** *(NEW!)*
-- **Real Distributed Training**: Extends ExoGym strategies to actual multi-machine clusters
-- **SSH Process Coordination**: Manages training processes across multiple Macs via SSH
-- **Apple Silicon Integration**: Native MPS support with ExoLabs guide compatibility
-- **Environment Validation**: Comprehensive Apple Silicon and connectivity verification
-
-#### **DistributedLauncher: SSH Orchestration** *(NEW!)*
-- **Cross-Machine Spawning**: Reliable SSH-based process launching across Mac clusters
-- **Environment Setup**: Automatic MPS configuration and dependency validation
-- **Fault Tolerance**: Retry logic and robust error handling for network issues
-- **Progressive Disclosure**: Steve Jobs-inspired UX with clear setup guidance
-
-#### **WhisperModelWrapper: Audio ML Integration** *(NEW!)*
-- **ExoGym Compatibility**: Bridges Whisper encoder-decoder models with ExoGym strategies
-- **Multi-Modal Processing**: Handles both audio features and text labels for ASR training
-- **Device Management**: Automatic tensor movement and Apple Silicon optimization
-- **Production Ready**: Optimized preprocessing pipeline for distributed training
 
 ---
 
@@ -731,3 +627,406 @@ ExoGym continues to evolve with the distributed training research landscape:
 pip install exogym[all]
 python -c "from exogym import LocalTrainer; print('🎉 ExoGym installed successfully!')"
 ```
+
+# Multi-Mac Whisper Training Implementation Plan
+
+## 🎯 Goal: Reliable Multi-Machine Distributed Training
+
+Get Whisper models training across multiple Macs using ExoGym's advanced distributed strategies (DiLoCo, SPARTA, etc.) with a simple, hacker-friendly approach.
+
+## 🏗 Architecture Overview
+
+### Core Principle: Extend, Don't Replace
+
+We're extending the existing ExoGym framework to work across actual machines instead of just simulating distributed training locally. The beauty is that ExoGym's strategies already use `torch.distributed` primitives - we just need to change the process spawning mechanism.
+
+### Current State → Target State
+
+**Current**: `LocalTrainer` uses `torch.multiprocessing.spawn()` to simulate distributed training on one machine
+
+**Target**: `NetworkTrainer` uses `torch.distributed` with TCP initialization to coordinate training across multiple machines
+
+## 📁 File Structure
+
+```
+whisper-fine-tuner-macos/
+├── distributed/                    # New distributed training module
+│   ├── __init__.py                 # Module initialization and exports
+│   ├── network_trainer.py          # NetworkTrainer class extending ExoGym
+│   ├── whisper_wrapper.py          # Whisper model adapter for ExoGym interface
+│   ├── launcher.py                 # SSH-based multi-machine launcher
+│   └── utils.py                    # Distributed training utilities
+├── distributed_hosts.json          # Simple host configuration (user-created)
+├── wizard.py                       # Enhanced with distributed training option
+├── cli_typer.py                    # New distributed-train command
+├── config.ini                      # New [distributed:*] profiles
+└── gym/                            # Existing ExoGym (minimal changes)
+    └── README/
+        └── implementation-plan.md   # This file
+```
+
+## 🔧 Technical Implementation
+
+### 1. Network Trainer (`distributed/network_trainer.py`)
+
+```python
+class NetworkTrainer(Trainer):
+    """
+    Multi-machine distributed trainer extending ExoGym's LocalTrainer.
+    
+    Key differences from LocalTrainer:
+    - Uses torch.distributed.init_process_group() with TCP backend
+    - Spawns processes across multiple machines via SSH
+    - Handles network-aware error recovery and monitoring
+    """
+    
+    def __init__(self, hosts_config, model, train_dataset, val_dataset, **kwargs):
+        self.hosts_config = hosts_config  # Load from distributed_hosts.json
+        self.master_addr = hosts_config['master']
+        self.worker_addrs = hosts_config['workers']
+        super().__init__(model, train_dataset, val_dataset, **kwargs)
+    
+    def _build_connection(self):
+        """
+        Initialize torch.distributed for multi-machine training.
+        Uses TCP backend for network communication.
+        """
+        os.environ["MASTER_ADDR"] = self.master_addr
+        os.environ["MASTER_PORT"] = str(self.port)
+        
+        # Initialize process group for network-based distributed training
+        dist.init_process_group(
+            backend="nccl" if self.device == "cuda" else "gloo",
+            init_method=f"tcp://{self.master_addr}:{self.port}",
+            rank=self.rank,
+            world_size=self.num_nodes
+        )
+    
+    def fit(self, **kwargs):
+        """
+        Override fit to launch processes across multiple machines.
+        """
+        # Use launcher to start processes on remote machines
+        from .launcher import DistributedLauncher
+        launcher = DistributedLauncher(self.hosts_config)
+        return launcher.launch_training(self, **kwargs)
+```
+
+### 2. Whisper Model Wrapper (`distributed/whisper_wrapper.py`)
+
+```python
+class WhisperModelWrapper(nn.Module):
+    """
+    Adapter that makes Whisper models compatible with ExoGym's training interface.
+    
+    ExoGym expects models to:
+    - Take batches and return loss directly
+    - Handle device movement automatically
+    - Support standard optimizer interfaces
+    
+    This wrapper handles Whisper's encoder-decoder architecture and mel spectrogram preprocessing.
+    """
+    
+    def __init__(self, whisper_model, processor, device):
+        super().__init__()
+        self.whisper_model = whisper_model
+        self.processor = processor
+        self.device = device
+    
+    def forward(self, batch):
+        """
+        ExoGym interface: batch → loss
+        
+        Handles:
+        - Audio preprocessing to mel spectrograms
+        - Encoder-decoder forward pass
+        - Loss computation for ASR task
+        """
+        audio_features, labels = batch
+        
+        # Whisper-specific preprocessing
+        mel_features = self.processor(audio_features, sampling_rate=16000)
+        
+        # Forward pass through Whisper encoder-decoder
+        outputs = self.whisper_model(
+            input_features=mel_features,
+            labels=labels
+        )
+        
+        return outputs.loss
+```
+
+### 3. SSH Launcher (`distributed/launcher.py`)
+
+```python
+class DistributedLauncher:
+    """
+    Launches and coordinates training processes across multiple machines via SSH.
+    
+    Simple, reliable approach:
+    - SSH into each worker machine
+    - Start training process with appropriate rank and world_size
+    - Monitor processes and collect results
+    - Handle failures gracefully
+    """
+    
+    def __init__(self, hosts_config):
+        self.master_addr = hosts_config['master']
+        self.worker_addrs = hosts_config['workers']
+        self.ssh_user = hosts_config.get('ssh_user', 'username')
+    
+    def launch_training(self, trainer, **training_kwargs):
+        """
+        1. Validate SSH connectivity to all machines
+        2. Launch worker processes via SSH
+        3. Run master process locally
+        4. Coordinate training and collect results
+        """
+        # Pre-flight checks
+        self._validate_connectivity()
+        self._check_remote_dependencies()
+        
+        # Launch workers
+        worker_processes = []
+        for rank, worker_addr in enumerate(self.worker_addrs, 1):
+            cmd = self._build_worker_command(rank, trainer, **training_kwargs)
+            process = self._ssh_launch(worker_addr, cmd)
+            worker_processes.append(process)
+        
+        # Run master locally
+        trainer.rank = 0
+        trainer.num_nodes = len(self.worker_addrs) + 1
+        result = trainer._fit_process(rank=0)
+        
+        # Wait for workers and collect results
+        self._wait_for_workers(worker_processes)
+        
+        return result
+    
+    def _ssh_launch(self, host, command):
+        """Launch command on remote host via SSH."""
+        ssh_cmd = f"ssh {self.ssh_user}@{host} '{command}'"
+        return subprocess.Popen(ssh_cmd, shell=True)
+    
+    def _build_worker_command(self, rank, trainer, **kwargs):
+        """Build the command to run on worker machines."""
+        # Serialize trainer and arguments for remote execution
+        # This is the tricky part - we need to recreate the training context on remote machines
+        return f"cd {os.getcwd()} && python -m distributed.worker_main --rank {rank} --config '{serialize_config(trainer, kwargs)}'"
+```
+
+### 4. Configuration Support (`distributed_hosts.json`)
+
+```json
+{
+  "master": "192.168.1.100",
+  "workers": [
+    "192.168.1.101", 
+    "192.168.1.102"
+  ],
+  "ssh_user": "matt",
+  "ssh_key_path": "~/.ssh/id_rsa",
+  "python_env": "/opt/anaconda3/envs/whisper/bin/python",
+  "project_path": "/Users/matt/whisper-fine-tuner-macos"
+}
+```
+
+### 5. Enhanced Wizard Integration (`wizard.py`)
+
+```python
+def check_distributed_training():
+    """
+    Check if distributed training is configured and offer it as an option.
+    
+    Beautiful progressive disclosure:
+    1. Check for distributed_hosts.json
+    2. Validate connectivity to configured machines
+    3. Offer distributed training with estimated speedup
+    """
+    hosts_file = Path("distributed_hosts.json")
+    if not hosts_file.exists():
+        return None
+    
+    try:
+        with open(hosts_file) as f:
+            hosts_config = json.load(f)
+        
+        # Quick connectivity check
+        available_workers = validate_workers(hosts_config['workers'])
+        
+        if available_workers:
+            console.print(Panel(
+                f"🚀 I found {len(available_workers)} other Macs configured for distributed training!\n"
+                f"📊 Estimated speedup: {len(available_workers) + 1}x faster\n"
+                f"🎯 Strategy: DiLoCo (minimal communication, maximum speed)",
+                title="Distributed Training Available",
+                border_style="blue"
+            ))
+            
+            use_distributed = questionary.confirm(
+                "Use distributed training across multiple Macs?",
+                default=True,
+                style=apple_style
+            ).ask()
+            
+            if use_distributed:
+                return hosts_config
+    except Exception as e:
+        console.print(f"[yellow]Distributed training config found but invalid: {e}[/yellow]")
+    
+    return None
+
+def run_distributed_training(model, dataset, hosts_config, **training_args):
+    """Execute distributed training across multiple machines."""
+    from distributed import NetworkTrainer, WhisperModelWrapper
+    
+    # Wrap Whisper model for ExoGym compatibility
+    wrapped_model = WhisperModelWrapper(model, processor, device)
+    
+    # Create network trainer
+    trainer = NetworkTrainer(
+        hosts_config=hosts_config,
+        model=wrapped_model,
+        train_dataset=dataset,
+        val_dataset=val_dataset
+    )
+    
+    # Choose strategy (DiLoCo for V1)
+    from gym.exogym.strategy.diloco import DiLoCoStrategy
+    strategy = DiLoCoStrategy(H=100, inner_optim='adamw', outer_optim='sgd')
+    
+    # Launch distributed training
+    console.print("\n🚀 Starting distributed training across machines...")
+    final_model = trainer.fit(
+        strategy=strategy,
+        num_nodes=len(hosts_config['workers']) + 1,
+        **training_args
+    )
+    
+    return final_model
+```
+
+## 🔄 Integration Points
+
+### 1. CLI Command
+
+```bash
+# New distributed training command
+python cli_typer.py distributed-train medium-lora-data3 --hosts distributed_hosts.json
+
+# Wizard with distributed option
+python wizard.py
+```
+
+### 2. Config Profiles
+
+```ini
+[distributed:diloco-medium]
+base_profile = medium-lora-data3
+strategy = diloco
+communication_interval = 100
+hosts_config = distributed_hosts.json
+```
+
+## 🧪 Testing Strategy
+
+### Phase 1: Local Testing
+1. Test NetworkTrainer with localhost addresses (simulate multi-machine)
+2. Validate Whisper model wrapper with different model sizes
+3. Test SSH launcher with local SSH connections
+
+### Phase 2: Multi-Machine Testing
+1. Test with 2 Macs on same network
+2. Test failure scenarios (network disconnection, worker failure)
+3. Performance benchmarking vs single-machine training
+
+### Phase 3: Integration Testing
+1. Test wizard integration with distributed options
+2. Test CLI commands and configuration
+3. End-to-end training runs with real datasets
+
+## 📈 Success Metrics
+
+### V1 Success Criteria
+- [ ] Can train Whisper models across 2+ Macs using DiLoCo
+- [ ] Uses standard torch.distributed (no custom networking)
+- [ ] Simple JSON config for hosts (no auto-discovery)
+- [ ] Integrates with existing wizard and CLI
+- [ ] Handles common failure cases gracefully
+- [ ] Performance improvement scales with number of machines
+
+### Performance Targets
+- **2 Macs**: 1.8x speedup (accounting for communication overhead)
+- **3 Macs**: 2.5x speedup
+- **4 Macs**: 3.2x speedup
+
+## ⚠️ Risk Mitigation
+
+### Technical Risks
+1. **Network failures**: Implement retry logic and graceful degradation
+2. **SSH connectivity**: Clear error messages and setup documentation
+3. **Model serialization**: Careful handling of large model state across network
+4. **ExoGym integration**: Thorough testing of strategy compatibility
+
+### User Experience Risks
+1. **Complex setup**: Provide clear documentation and helper scripts
+2. **Debugging difficulty**: Comprehensive logging and error reporting
+3. **Version mismatches**: Environment validation across machines
+
+## 🗓 Implementation Timeline
+
+### Week 1: Core Infrastructure
+- [ ] Create distributed module structure
+- [ ] Implement NetworkTrainer basic functionality
+- [ ] Create Whisper model wrapper
+- [ ] Build basic SSH launcher
+
+### Week 2: Integration & Testing
+- [ ] Integrate with wizard and CLI
+- [ ] Add configuration support
+- [ ] Test across multiple machines
+- [ ] Documentation and polish
+
+## 🚀 The 'Steve Jobs' Roadmap (V2+)
+
+Once the robust V1 foundation is in place, we will iteratively build towards the effortless, magical user experience we initially envisioned. The goal is to make distributed training not just accessible, but delightful.
+
+### The Seamless Experience
+The end-user experience should feel like this:
+1.  **Discovery**: The wizard automatically detects other Macs on the network. *"I found 2 other Macs. Want to use them for 3x faster training?"*
+2.  **Setup**: One-click confirmation handles all SSH configuration and environment validation seamlessly. *"Setting up secure connections... ✓ All machines ready!"*
+3.  **Training**: A beautiful, real-time dashboard visualizes progress, performance metrics, and health across all machines.
+4.  **Intelligence**: The system intelligently selects the best distributed strategy (DiLoCo, SPARTA, etc.) based on the network conditions and model architecture.
+5.  **Resilience**: The training run is resilient to network hiccups or machine failures, automatically recovering where possible.
+
+### V2+ Feature Breakdown
+- **Auto-Discovery & Zero-Conf Setup**: Use mDNS/Bonjour to find other Macs and automate the entire setup process.
+- **Real-Time Web Dashboard**: A rich UI to monitor training progress, system utilization (CPU/GPU/Network), and model performance metrics across the cluster.
+- **Multi-Strategy Intelligence**: Full integration of SPARTA, FedAvg, and other ExoGym strategies, with automated selection for the user's scenario.
+- **Advanced Fault Tolerance**: Automatic snapshotting and recovery, allowing training to resume even if a worker node drops.
+- **Dynamic Load Balancing**: Intelligently distribute workloads based on each machine's real-time capabilities and availability.
+
+## 📚 Documentation Requirements
+
+### User Documentation
+1. **Setup Guide**: SSH configuration, dependencies, network setup
+2. **Usage Guide**: CLI commands, configuration options, troubleshooting
+3. **Performance Guide**: Optimal configurations for different scenarios
+
+### Developer Documentation
+1. **Architecture Overview**: System design and component interaction
+2. **API Reference**: NetworkTrainer, launcher, and wrapper interfaces
+3. **Extension Guide**: Adding new strategies and customizations
+
+---
+
+## 🎯 The Bottom Line
+
+This plan delivers a working, reliable multi-machine distributed training system for Whisper models. It follows the "hacker way" philosophy:
+
+- **Simple**: Uses standard tools (torch.distributed, SSH)
+- **Reliable**: Built on proven technologies
+- **Extensible**: Clean architecture for future enhancements
+- **Practical**: Solves the real problem without over-engineering
+
+The goal is to get you training across your Macs in 2 weeks, not 2 months.
